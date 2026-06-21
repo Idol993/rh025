@@ -45,6 +45,10 @@ export interface Equipment {
   isLocked?: boolean
   lockReason?: string
   lockTime?: string
+  unlockInspectionResult?: string
+  unlockResetNote?: string
+  unlockOperator?: string
+  unlockTime?: string
   load: number
   maxLoad: number
   angle: number
@@ -164,4 +168,18 @@ export interface User {
   phone: string
   department: string
   permissions: string[]
+}
+
+export interface OperationLog {
+  id: string
+  type: 'worker-add' | 'worker-edit' | 'material-accept' | 'material-reject' | 'salary-approve' | 'salary-pay' | 'salary-retry' | 'equipment-lock' | 'equipment-unlock' | 'workorder-create' | 'workorder-close' | 'alert-handle'
+  module: 'personnel' | 'material' | 'salary' | 'equipment' | 'workorder' | 'safety'
+  modulePath: string
+  title: string
+  description: string
+  operator: string
+  operatorRole: string
+  relatedId: string
+  relatedName: string
+  timestamp: string
 }

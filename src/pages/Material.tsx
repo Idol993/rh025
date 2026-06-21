@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Card,
   Table,
@@ -35,6 +35,7 @@ import StatCard from '@/components/StatCard'
 import StatusTag from '@/components/StatusTag'
 import { useAppStore } from '@/store/useStore'
 import type { Material } from '@/types'
+import { useSearchParams } from 'react-router-dom'
 
 const { Option } = Select
 const { TextArea } = Input
@@ -43,6 +44,12 @@ export default function Material() {
   const { materials, updateMaterialAcceptance, currentUser } = useAppStore()
   const [supplierFilter, setSupplierFilter] = useState<string>('all')
   const [resultFilter, setResultFilter] = useState<string>('all')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    const filter = searchParams.get('filter')
+    if (filter) setResultFilter(filter)
+  }, [])
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
   const [remarkModalVisible, setRemarkModalVisible] = useState(false)

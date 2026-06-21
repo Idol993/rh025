@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Space, Row, Col, Progress, List, Descriptions, message, Alert } from 'antd'
 import { DollarOutlined, WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, EyeOutlined, SearchOutlined, BankOutlined, UserOutlined, TeamOutlined, FileTextOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
@@ -7,6 +7,7 @@ import { useAppStore } from '@/store/useStore'
 import StatCard from '@/components/StatCard'
 import StatusTag from '@/components/StatusTag'
 import type { SalaryRecord } from '@/types'
+import { useSearchParams } from 'react-router-dom'
 
 const { RangePicker } = DatePicker
 const { Option } = Select
@@ -17,6 +18,12 @@ export default function Salary() {
   const [selectedMonth, setSelectedMonth] = useState('2025-05')
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    const filter = searchParams.get('filter')
+    if (filter) setStatusFilter(filter)
+  }, [])
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [detailModal, setDetailModal] = useState(false)
   const [currentRecord, setCurrentRecord] = useState<SalaryRecord | null>(null)

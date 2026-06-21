@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Card,
   Table,
@@ -43,6 +43,7 @@ import StatusTag from '@/components/StatusTag'
 import StatCard from '@/components/StatCard'
 import { useAppStore } from '@/store/useStore'
 import type { Worker } from '@/types'
+import { useSearchParams } from 'react-router-dom'
 
 const { Search } = Input
 const { Option } = Select
@@ -52,6 +53,12 @@ export default function Personnel() {
   const { workers, addWorker, updateWorker } = useAppStore()
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    const filter = searchParams.get('filter')
+    if (filter) setStatusFilter(filter)
+  }, [])
   const [workTypeFilter, setWorkTypeFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [modalVisible, setModalVisible] = useState(false)

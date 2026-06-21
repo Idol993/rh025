@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Space, Row, Col, Progress, List, Steps, Image, Upload, message, Timeline } from 'antd'
 import { WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, EyeOutlined, SearchOutlined, PlusOutlined, UploadOutlined, SafetyOutlined, ToolOutlined, BarChartOutlined, UserOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
@@ -7,6 +7,7 @@ import { useAppStore } from '@/store/useStore'
 import StatCard from '@/components/StatCard'
 import StatusTag from '@/components/StatusTag'
 import type { WorkOrder } from '@/types'
+import { useSearchParams } from 'react-router-dom'
 
 const { RangePicker } = DatePicker
 const { Option } = Select
@@ -16,6 +17,12 @@ export default function WorkOrderPage() {
   const { workOrders, updateWorkOrderStatus, addWorkOrder } = useAppStore()
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    const filter = searchParams.get('filter')
+    if (filter) setStatusFilter(filter)
+  }, [])
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [levelFilter, setLevelFilter] = useState<string>('all')
   const [detailModal, setDetailModal] = useState(false)

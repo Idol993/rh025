@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { User, Worker, SafetyAlert, Equipment, Material, ProgressTask, SalaryRecord, WorkOrder, Project } from '@/types'
+import type { User, Worker, SafetyAlert, Equipment, Material, ProgressTask, SalaryRecord, WorkOrder, Project, OperationLog } from '@/types'
 import {
   mockCurrentUser,
   mockWorkers,
@@ -25,6 +25,7 @@ interface AppState {
   projects: Project[]
   selectedProject: string
   stats: DashboardStats
+  operationLogs: OperationLog[]
   setSelectedProject: (id: string) => void
   addWorker: (worker: Omit<Worker, 'id' | 'entryTime' | 'status'> & { status?: Worker['status'] }) => Worker
   updateWorker: (id: string, worker: Partial<Worker>) => void
@@ -37,11 +38,9 @@ interface AppState {
   paySalary: (ids: string[]) => void
   retryPaySalary: (id: string) => void
   emergencyStopEquipment: (id: string, reason: string) => void
+  unlockEquipment: (id: string, inspectionResult: string, resetNote: string, operator: string, targetStatus?: 'running' | 'warning') => void
   refreshStats: () => void
 }
-
-const genId = (prefix: string, len: number) =>
-  `${prefix}${Date.now().toString().slice(-len / 2)}${Math.random().toString(36).slice(2, 2 + len / 2)}`.toUpperCase().padEnd(len, '0')
 
 const nowStr = () => new Date().toISOString().replace('T', ' ').substring(0, 19)
 
@@ -68,15 +67,27 @@ type DashboardStats = {
   pendingSalaryRecords: number
   salaryPaymentRate: number
   totalSalaryAmount: number
+  paidSalaryAmount: number
+  pendingSalaryAmount: number
   equipmentTotal: number
   equipmentRunning: number
   equipmentWarning: number
   equipmentDanger: number
+  equipmentLocked: number
   equipmentCount: number
   plannedProgress: number
   actualProgress: number
   progressDeviation: number
   totalProgress: number
+}
+
+const addLog = (state: AppState, log: Omit<OperationLog, 'id' | 'timestamp'>): Partial<AppState> => {
+  const newLog: OperationLog = {
+    ...log,
+    id: `LOG${Date.now()}${Math.floor(Math.random() * 1000)}`,
+    timestamp: nowStr()
+  }
+  return { operationLogs: [newLog, ...state.operationLogs].slice(0, 200) }
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -91,6 +102,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   projects: mockProjects,
   selectedProject: 'P001',
   stats: dashboardStats as DashboardStats,
+  operationLogs: [],
 
   setSelectedProject: (id) => set({ selectedProject: id }),
 
@@ -102,9 +114,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!trained || !certified) {
       status = 'pending'
     }
-    if (!certified && worker.certificate && !worker.certificate.valid) {
-      status = 'pending'
-    }
     const newWorker: Worker = {
       ...worker,
       id: newId,
@@ -113,12 +122,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set((state) => ({
       workers: [newWorker, ...state.workers],
-      stats: {
-        ...state.stats,
-        totalWorkers: state.stats.totalWorkers + 1,
-        onSiteWorkers: newWorker.status === 'on-site' ? state.stats.onSiteWorkers + 1 : state.stats.onSiteWorkers
-      }
+      ...addLog(state, {
+        type: 'worker-add',
+        module: 'personnel',
+        modulePath: '/personnel',
+        title: '新增工人',
+        description: `${newWorker.name}（${newWorker.workType}）已入场，状态：${newWorker.status === 'on-site' ? '在场' : '待审核'}`,
+        operator: state.currentUser.name,
+        operatorRole: state.currentUser.roleName,
+        relatedId: newWorker.id,
+        relatedName: newWorker.name
+      })
     }))
+    get().refreshStats()
     return newWorker
   },
 
@@ -138,6 +154,17 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         }
         return { ...merged, status: newStatus }
+      }),
+      ...addLog(state, {
+        type: 'worker-edit',
+        module: 'personnel',
+        modulePath: '/personnel',
+        title: '编辑工人信息',
+        description: `工人 ${state.workers.find(w => w.id === id)?.name} 信息已更新`,
+        operator: state.currentUser.name,
+        operatorRole: state.currentUser.roleName,
+        relatedId: id,
+        relatedName: state.workers.find(w => w.id === id)?.name || id
       })
     }))
     get().refreshStats()
@@ -162,7 +189,18 @@ export const useAppStore = create<AppState>((set, get) => ({
               reviewComment: reviewComment || order.reviewComment
             }
           : order
-      )
+      ),
+      ...(status === 'closed' ? addLog(state, {
+        type: 'workorder-close',
+        module: 'workorder',
+        modulePath: '/workorder',
+        title: '工单闭环',
+        description: `工单「${state.workOrders.find(o => o.id === id)?.title}」已闭环归档`,
+        operator: state.currentUser.name,
+        operatorRole: state.currentUser.roleName,
+        relatedId: id,
+        relatedName: state.workOrders.find(o => o.id === id)?.title || id
+      }) : {})
     }))
     get().refreshStats()
   },
@@ -171,7 +209,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       safetyAlerts: state.safetyAlerts.map((alert) =>
         alert.id === id ? { ...alert, status, handler: handler || alert.handler } : alert
-      )
+      ),
+      ...(status === 'processing' || status === 'resolved' ? addLog(state, {
+        type: 'alert-handle',
+        module: 'safety',
+        modulePath: '/safety',
+        title: '处理安全预警',
+        description: `${state.safetyAlerts.find(a => a.id === id)?.typeName}（${state.safetyAlerts.find(a => a.id === id)?.location}）已${status === 'processing' ? '开始处理' : '处理完成'}`,
+        operator: handler || state.currentUser.name,
+        operatorRole: state.currentUser.roleName,
+        relatedId: id,
+        relatedName: state.safetyAlerts.find(a => a.id === id)?.typeName || id
+      }) : {})
     }))
     get().refreshStats()
   },
@@ -186,25 +235,50 @@ export const useAppStore = create<AppState>((set, get) => ({
           status: 'pending'
         },
         ...state.workOrders
-      ]
+      ],
+      ...addLog(state, {
+        type: 'workorder-create',
+        module: 'workorder',
+        modulePath: '/workorder',
+        title: '新建工单',
+        description: `工单「${order.title}」已创建，负责人：${order.handler}`,
+        operator: order.reporter,
+        operatorRole: state.currentUser.roleName,
+        relatedId: `WO${String(state.workOrders.length + 1).padStart(5, '0')}`,
+        relatedName: order.title
+      })
     }))
     get().refreshStats()
   },
 
   updateMaterialAcceptance: (id, result, operator, remark) => {
-    set((state) => ({
-      materials: state.materials.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              acceptanceResult: result,
-              acceptanceOperator: operator,
-              acceptanceTime: nowStr(),
-              acceptanceRemark: remark
-            }
-          : m
-      )
-    }))
+    set((state) => {
+      const mat = state.materials.find(m => m.id === id)
+      return {
+        materials: state.materials.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                acceptanceResult: result,
+                acceptanceOperator: operator,
+                acceptanceTime: nowStr(),
+                acceptanceRemark: remark
+              }
+            : m
+        ),
+        ...addLog(state, {
+          type: result === 'passed' ? 'material-accept' : 'material-reject',
+          module: 'material',
+          modulePath: '/material',
+          title: result === 'passed' ? '材料验收通过' : '材料验收拒绝',
+          description: `${mat?.name}（${mat?.spec}）${result === 'passed' ? '验收通过' : '验收拒绝'}，验收员：${operator}${remark ? '，备注：' + remark : ''}`,
+          operator,
+          operatorRole: state.currentUser.roleName,
+          relatedId: id,
+          relatedName: mat?.name || id
+        })
+      }
+    })
     get().refreshStats()
   },
 
@@ -213,7 +287,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       salaryRecords: state.salaryRecords.map((r) =>
         idSet.has(r.id) && r.status === 'pending' ? { ...r, status: 'approved' } : r
-      )
+      ),
+      ...addLog(state, {
+        type: 'salary-approve',
+        module: 'salary',
+        modulePath: '/salary',
+        title: '工资审核通过',
+        description: `${ids.length} 条工资记录审核通过`,
+        operator: state.currentUser.name,
+        operatorRole: state.currentUser.roleName,
+        relatedId: ids[0],
+        relatedName: `${ids.length}条记录`
+      })
     }))
     get().refreshStats()
   },
@@ -231,42 +316,118 @@ export const useAppStore = create<AppState>((set, get) => ({
               bankFlowNo: `BANK${Date.now()}${Math.floor(Math.random() * 10000)}`
             }
           : r
-      )
+      ),
+      ...addLog(state, {
+        type: 'salary-pay',
+        module: 'salary',
+        modulePath: '/salary',
+        title: '工资发放成功',
+        description: `${ids.length} 条工资已通过专户银行发放`,
+        operator: state.currentUser.name,
+        operatorRole: state.currentUser.roleName,
+        relatedId: ids[0],
+        relatedName: `${ids.length}条记录`
+      })
     }))
     get().refreshStats()
   },
 
   retryPaySalary: (id) => {
-    set((state) => ({
-      salaryRecords: state.salaryRecords.map((r) =>
-        r.id === id && r.status === 'failed'
-          ? {
-              ...r,
-              status: 'paid',
-              paidTime: nowStr(),
-              bankFlowNo: `BANK${Date.now()}${Math.floor(Math.random() * 10000)}`
-            }
-          : r
-      )
-    }))
+    set((state) => {
+      const rec = state.salaryRecords.find(r => r.id === id)
+      return {
+        salaryRecords: state.salaryRecords.map((r) =>
+          r.id === id && r.status === 'failed'
+            ? {
+                ...r,
+                status: 'paid',
+                paidTime: nowStr(),
+                bankFlowNo: `BANK${Date.now()}${Math.floor(Math.random() * 10000)}`
+              }
+            : r
+        ),
+        ...addLog(state, {
+          type: 'salary-retry',
+          module: 'salary',
+          modulePath: '/salary',
+          title: '工资重发成功',
+          description: `${rec?.workerName}（¥${rec?.totalSalary.toLocaleString()}）重新发放成功`,
+          operator: state.currentUser.name,
+          operatorRole: state.currentUser.roleName,
+          relatedId: id,
+          relatedName: rec?.workerName || id
+        })
+      }
+    })
     get().refreshStats()
   },
 
   emergencyStopEquipment: (id, reason) => {
-    set((state) => ({
-      equipment: state.equipment.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              status: 'offline',
-              isLocked: true,
-              lockReason: reason,
-              lockTime: nowStr(),
-              lastUpdate: nowStr()
-            }
-          : e
-      )
-    }))
+    set((state) => {
+      const eq = state.equipment.find(e => e.id === id)
+      return {
+        equipment: state.equipment.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                status: 'offline',
+                isLocked: true,
+                lockReason: reason,
+                lockTime: nowStr(),
+                lastUpdate: nowStr()
+              }
+            : e
+        ),
+        ...addLog(state, {
+          type: 'equipment-lock',
+          module: 'equipment',
+          modulePath: '/equipment',
+          title: '设备紧急停机',
+          description: `${eq?.name}（${eq?.typeName}）已执行断电/锁机保护，原因：${reason}`,
+          operator: state.currentUser.name,
+          operatorRole: state.currentUser.roleName,
+          relatedId: id,
+          relatedName: eq?.name || id
+        })
+      }
+    })
+    get().refreshStats()
+  },
+
+  unlockEquipment: (id, inspectionResult, resetNote, operator, targetStatus = 'running') => {
+    set((state) => {
+      const eq = state.equipment.find(e => e.id === id)
+      return {
+        equipment: state.equipment.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                status: targetStatus,
+                isLocked: false,
+                lockReason: undefined,
+                lockTime: undefined,
+                unlockInspectionResult: inspectionResult,
+                unlockResetNote: resetNote,
+                unlockOperator: operator,
+                unlockTime: nowStr(),
+                lastUpdate: nowStr(),
+                limitStatus: '正常'
+              }
+            : e
+        ),
+        ...addLog(state, {
+          type: 'equipment-unlock',
+          module: 'equipment',
+          modulePath: '/equipment',
+          title: '设备解锁复位',
+          description: `${eq?.name}（${eq?.typeName}）已解锁复位为${targetStatus === 'running' ? '正常运行' : '预警'}状态，排查结果：${inspectionResult}`,
+          operator,
+          operatorRole: state.currentUser.roleName,
+          relatedId: id,
+          relatedName: eq?.name || id
+        })
+      }
+    })
     get().refreshStats()
   },
 
@@ -286,15 +447,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const todayMatIn = materials.filter((m) => new Date(m.entryTime).toDateString() === today).length
     const salPaid = salaryRecords.filter((s) => s.status === 'paid').length
     const salPending = salaryRecords.filter((s) => s.status === 'pending').length
+    const salApproved = salaryRecords.filter((s) => s.status === 'approved').length
     const salTotal = salaryRecords.length
     const salPaidRate = salTotal > 0 ? (salPaid / salTotal) * 100 : 100
     const totalSalary = salaryRecords.reduce((sum, r) => sum + r.totalSalary, 0)
+    const paidSalary = salaryRecords.filter((s) => s.status === 'paid').reduce((sum, r) => sum + r.totalSalary, 0)
+    const pendingSalary = salaryRecords.filter((s) => s.status !== 'paid').reduce((sum, r) => sum + r.totalSalary, 0)
     const equipRunning = equipment.filter((e) => e.status === 'running' && !e.isLocked).length
-    const equipDanger = equipment.filter((e) => e.status === 'danger' || e.isLocked).length
+    const equipWarning = equipment.filter((e) => e.status === 'warning').length
+    const equipDanger = equipment.filter((e) => e.status === 'danger' && !e.isLocked).length
+    const equipLocked = equipment.filter((e) => e.isLocked).length
     const equipTotal = equipment.length
     const plannedProgress = 72
     const actualProgress = 68
     const progressDeviation = actualProgress - plannedProgress
+    const closureRate = totalWO > 0 ? (closedWO / totalWO) * 100 : 100
 
     set({
       stats: {
@@ -310,7 +477,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         totalWorkOrders: totalWO,
         pendingWorkOrders: pendingWO,
         closedWorkOrders: closedWO,
-        closureRate: totalWO > 0 ? (closedWO / totalWO) * 100 : 100,
+        closureRate,
         totalMaterials: matTotal,
         pendingMaterials: matPending,
         materialPassRate: passRate,
@@ -320,10 +487,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         pendingSalaryRecords: salPending,
         salaryPaymentRate: salPaidRate,
         totalSalaryAmount: totalSalary,
+        paidSalaryAmount: paidSalary,
+        pendingSalaryAmount: pendingSalary,
         equipmentTotal: equipTotal,
         equipmentRunning: equipRunning,
-        equipmentWarning: equipment.filter((e) => e.status === 'warning').length,
+        equipmentWarning: equipWarning,
         equipmentDanger: equipDanger,
+        equipmentLocked: equipLocked,
         equipmentCount: equipTotal,
         plannedProgress,
         actualProgress,

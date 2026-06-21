@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Card,
   Table,
@@ -13,7 +13,10 @@ import {
   Tag,
   Space,
   Alert,
-  message
+  message,
+  Input,
+  Radio,
+  Form
 } from 'antd'
 import {
   ToolOutlined,
@@ -25,23 +28,34 @@ import {
   SafetyOutlined,
   DashboardOutlined,
   RiseOutlined,
-  ArrowUpOutlined
+  ArrowUpOutlined,
+  UnlockOutlined
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import StatCard from '@/components/StatCard'
 import StatusTag from '@/components/StatusTag'
 import { useAppStore } from '@/store/useStore'
 import type { Equipment } from '@/types'
+import { useSearchParams } from 'react-router-dom'
 
 const { Option } = Select
 
 export default function Equipment() {
-  const { equipment, emergencyStopEquipment, currentUser } = useAppStore()
+  const { equipment, emergencyStopEquipment, unlockEquipment, currentUser } = useAppStore()
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    const filter = searchParams.get('filter')
+    if (filter) setStatusFilter(filter)
+  }, [])
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null)
   const [stopping, setStopping] = useState(false)
+  const [unlockModalVisible, setUnlockModalVisible] = useState(false)
+  const [unlocking, setUnlocking] = useState(false)
+  const [unlockForm] = Form.useForm()
 
   const types = useMemo(() => [...new Set(equipment.map(e => e.typeName))], [equipment])
 
@@ -277,6 +291,35 @@ export default function Equipment() {
     })
   }
 
+  const handleUnlock = (eq: Equipment) => {
+    setSelectedEquipment(eq)
+    unlockForm.resetFields()
+    unlockForm.setFieldsValue({ targetStatus: 'running', operator: currentUser.name })
+    setUnlockModalVisible(true)
+  }
+
+  const handleUnlockSubmit = async () => {
+    try {
+      const values = await unlockForm.validateFields()
+      setUnlocking(true)
+      unlockEquipment(
+        selectedEquipment!.id,
+        values.inspectionResult,
+        values.resetNote,
+        values.operator,
+        values.targetStatus
+      )
+      setTimeout(() => {
+        setUnlocking(false)
+        setUnlockModalVisible(false)
+        setModalVisible(false)
+        message.success(`「${selectedEquipment?.name}」已解锁复位，恢复为${values.targetStatus === 'running' ? '正常运行' : '预警'}状态`)
+      }, 600)
+    } catch {
+      // form validation failed
+    }
+  }
+
   const columns = [
     {
       title: '设备信息',
@@ -455,14 +498,16 @@ export default function Equipment() {
                 <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleView(eq)}>
                   查看详情
                 </Button>,
-                !eq.isLocked && (eq.status === 'danger' || eq.status === 'warning') ? (
+                eq.isLocked ? (
+                  <Button type="link" size="small" icon={<UnlockOutlined />} style={{ color: '#52c41a' }} onClick={() => handleUnlock(eq)}>
+                    解锁复位
+                  </Button>
+                ) : (eq.status === 'danger' || eq.status === 'warning') ? (
                   <Button type="link" size="small" danger icon={<ThunderboltOutlined />} onClick={() => handleEmergencyStop(eq)}>
                     紧急停机
                   </Button>
                 ) : (
-                  <span className="text-gray-500 text-xs py-1">
-                    {eq.isLocked ? '🔒 已断电锁机' : '运行正常'}
-                  </span>
+                  <span className="text-gray-500 text-xs py-1">运行正常</span>
                 )
               ]}
             >
@@ -578,11 +623,21 @@ export default function Equipment() {
         title="设备详情"
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        footer={selectedEquipment && !selectedEquipment.isLocked && (selectedEquipment.status === 'danger' || selectedEquipment.status === 'warning') ? [
-          <Button key="stop" type="primary" danger icon={<ThunderboltOutlined />} onClick={() => handleEmergencyStop(selectedEquipment)}>
-            紧急停机
-          </Button>
-        ] : null}
+        footer={selectedEquipment ? (
+          selectedEquipment.isLocked ? [
+            <Button key="close" onClick={() => setModalVisible(false)}>关闭</Button>,
+            <Button key="unlock" type="primary" icon={<UnlockOutlined />} style={{ background: '#52c41a', borderColor: '#52c41a' }} onClick={() => { setModalVisible(false); handleUnlock(selectedEquipment); }}>
+              解锁复位
+            </Button>
+          ] : (selectedEquipment.status === 'danger' || selectedEquipment.status === 'warning') ? [
+            <Button key="close" onClick={() => setModalVisible(false)}>关闭</Button>,
+            <Button key="stop" type="primary" danger icon={<ThunderboltOutlined />} onClick={() => handleEmergencyStop(selectedEquipment)}>
+              紧急停机
+            </Button>
+          ] : [
+            <Button key="close" onClick={() => setModalVisible(false)}>关闭</Button>
+          ]
+        ) : null}
         width={800}
       >
         {selectedEquipment && (
@@ -623,6 +678,23 @@ export default function Equipment() {
                     <div className="text-xs text-yellow-300 mt-1">
                       当前设备已断电/锁机/断油，需由持证技术人员排查隐患并确认安全后方可解锁复位。
                     </div>
+                  </div>
+                }
+              />
+            )}
+
+            {selectedEquipment.unlockTime && (
+              <Alert
+                type="success"
+                showIcon
+                icon={<UnlockOutlined />}
+                message="历史解锁复位记录"
+                description={
+                  <div className="space-y-1">
+                    <div><span className="text-gray-400">解锁时间：</span>{selectedEquipment.unlockTime}</div>
+                    <div><span className="text-gray-400">排查结果：</span>{selectedEquipment.unlockInspectionResult}</div>
+                    <div><span className="text-gray-400">复位说明：</span>{selectedEquipment.unlockResetNote}</div>
+                    <div><span className="text-gray-400">操作人员：</span>{selectedEquipment.unlockOperator}</div>
                   </div>
                 }
               />
@@ -681,6 +753,82 @@ export default function Equipment() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={<span className="flex items-center gap-2"><UnlockOutlined style={{ color: '#52c41a' }} /> 设备解锁复位</span>}
+        open={unlockModalVisible}
+        onCancel={() => setUnlockModalVisible(false)}
+        onOk={handleUnlockSubmit}
+        okText="确认解锁复位"
+        okButtonProps={{ loading: unlocking, style: { background: '#52c41a', borderColor: '#52c41a' } }}
+        cancelText="取消"
+        width={600}
+      >
+        {selectedEquipment && (
+          <div className="space-y-4">
+            <Alert
+              type="warning"
+              showIcon
+              message="解锁前请确认以下事项"
+              description={
+                <ul className="space-y-1 text-sm text-gray-300 mt-2">
+                  <li>1. 已由持证技术人员完成设备全面排查</li>
+                  <li>2. 隐患已排除，设备各项指标恢复正常</li>
+                  <li>3. 安全保护装置已复位并确认有效</li>
+                  <li>4. 现场已确认无人员处于危险区域</li>
+                </ul>
+              }
+            />
+            <div className="p-3 rounded bg-gray-500/10 border border-gray-500/30 text-sm">
+              <div className="flex justify-between mb-1">
+                <span className="text-gray-400">设备：</span>
+                <span className="text-white">{selectedEquipment.name}（{selectedEquipment.typeName}）</span>
+              </div>
+              <div className="flex justify-between mb-1">
+                <span className="text-gray-400">锁机时间：</span>
+                <span>{selectedEquipment.lockTime}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">锁机原因：</span>
+                <span className="text-red-300">{selectedEquipment.lockReason}</span>
+              </div>
+            </div>
+            <Form form={unlockForm} layout="vertical">
+              <Form.Item
+                label="排查结果"
+                name="inspectionResult"
+                rules={[{ required: true, message: '请填写排查结果' }]}
+              >
+                <Input.TextArea rows={3} placeholder="请描述排查发现的问题及处理措施，例如：经排查，载重传感器异常已修复，校准后读数正常" />
+              </Form.Item>
+              <Form.Item
+                label="复位说明"
+                name="resetNote"
+                rules={[{ required: true, message: '请填写复位说明' }]}
+              >
+                <Input.TextArea rows={2} placeholder="请描述复位操作及安全确认，例如：安全保护装置已复位，现场确认无人员危险区域" />
+              </Form.Item>
+              <Form.Item
+                label="复位后状态"
+                name="targetStatus"
+                rules={[{ required: true, message: '请选择复位后状态' }]}
+              >
+                <Radio.Group>
+                  <Radio value="running">正常运行</Radio>
+                  <Radio value="warning">预警监控</Radio>
+                </Radio.Group>
+              </Form.Item>
+              <Form.Item
+                label="操作人员"
+                name="operator"
+                rules={[{ required: true, message: '请填写操作人员' }]}
+              >
+                <Input placeholder="持证技术人员姓名" />
+              </Form.Item>
+            </Form>
           </div>
         )}
       </Modal>

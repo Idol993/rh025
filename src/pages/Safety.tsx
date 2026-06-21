@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Card,
   Table,
@@ -35,6 +35,7 @@ import StatCard from '@/components/StatCard'
 import StatusTag from '@/components/StatusTag'
 import { useAppStore } from '@/store/useStore'
 import type { SafetyAlert } from '@/types'
+import { useSearchParams } from 'react-router-dom'
 
 const { Option } = Select
 const { Step } = Steps
@@ -44,6 +45,12 @@ export default function Safety() {
   const [levelFilter, setLevelFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    const filter = searchParams.get('filter')
+    if (filter) setStatusFilter(filter)
+  }, [])
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedAlert, setSelectedAlert] = useState<SafetyAlert | null>(null)
   const [handlerForm] = Form.useForm()
