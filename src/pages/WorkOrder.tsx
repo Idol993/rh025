@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Space, Row, Col, Progress, List, Steps, Image, Upload, message, Timeline } from 'antd'
-import { WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, EyeOutlined, SearchOutlined, PlusOutlined, UploadOutlined, SafetyOutlined, ToolOutlined, BarChartOutlined, UserOutlined } from '@ant-design/icons'
+import { WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, EyeOutlined, SearchOutlined, PlusOutlined, UploadOutlined, SafetyOutlined, ToolOutlined, BarChartOutlined, UserOutlined, HistoryOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 import { useAppStore } from '@/store/useStore'
@@ -14,7 +14,7 @@ const { Option } = Select
 const { TextArea } = Input
 
 export default function WorkOrderPage() {
-  const { workOrders, updateWorkOrderStatus, addWorkOrder } = useAppStore()
+  const { workOrders, updateWorkOrderStatus, addWorkOrder, operationLogs } = useAppStore()
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchParams] = useSearchParams()
@@ -826,47 +826,30 @@ export default function WorkOrderPage() {
             )}
 
             <div className="pt-4 border-t border-gray-700">
-              <h4 className="text-white text-sm font-medium mb-3">操作日志</h4>
-              <Timeline
-                items={[
-                  {
-                    color: 'green',
-                    children: (
-                      <div>
-                        <div className="text-white text-sm">工单创建</div>
-                        <div className="text-gray-400 text-xs">{currentOrder.reportTime} · {currentOrder.reporter}</div>
-                      </div>
-                    )
-                  },
-                  currentOrder.status !== 'pending' ? {
-                    color: 'blue',
-                    children: (
-                      <div>
-                        <div className="text-white text-sm">开始整改</div>
-                        <div className="text-gray-400 text-xs">{currentOrder.rectificationTime} · {currentOrder.handler}</div>
-                      </div>
-                    )
-                  } : null,
-                  (currentOrder.status === 'reviewing' || currentOrder.status === 'closed') ? {
-                    color: 'orange',
-                    children: (
-                      <div>
-                        <div className="text-white text-sm">提交复查</div>
-                        <div className="text-gray-400 text-xs">{currentOrder.rectificationTime} · {currentOrder.handler}</div>
-                      </div>
-                    )
-                  } : null,
-                  currentOrder.status === 'closed' ? {
-                    color: 'green',
-                    children: (
-                      <div>
-                        <div className="text-white text-sm">复查通过，工单闭环</div>
-                        <div className="text-gray-400 text-xs">{currentOrder.reviewTime} · {currentOrder.reviewer}</div>
-                      </div>
-                    )
-                  } : null
-                ].filter(Boolean) as any}
-              />
+              <h4 className="text-white text-sm font-medium mb-3 flex items-center gap-2">
+                <HistoryOutlined className="text-cyan-400" />
+                操作追溯时间线
+              </h4>
+              {operationLogs.filter(log => log.relatedId === currentOrder.id).length > 0 ? (
+                <Timeline
+                  items={operationLogs
+                    .filter(log => log.relatedId === currentOrder.id)
+                    .map(log => ({
+                      color: log.type === 'workorder-close' ? 'green' : log.type === 'workorder-create' ? 'blue' : 'gray',
+                      children: (
+                        <div>
+                          <div className="text-white text-sm">{log.title}</div>
+                          <div className="text-gray-400 text-xs mt-1">{log.description}</div>
+                          <div className="text-gray-500 text-xs mt-1">
+                            操作人：{log.operator}（{log.operatorRole}）· {log.timestamp}
+                          </div>
+                        </div>
+                      )
+                    }))}
+                />
+              ) : (
+                <div className="text-gray-500 text-sm py-4 text-center">暂无操作记录</div>
+              )}
             </div>
           </div>
         )}

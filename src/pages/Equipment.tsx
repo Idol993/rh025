@@ -16,7 +16,8 @@ import {
   message,
   Input,
   Radio,
-  Form
+  Form,
+  Timeline
 } from 'antd'
 import {
   ToolOutlined,
@@ -29,7 +30,8 @@ import {
   DashboardOutlined,
   RiseOutlined,
   ArrowUpOutlined,
-  UnlockOutlined
+  UnlockOutlined,
+  HistoryOutlined
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import StatCard from '@/components/StatCard'
@@ -41,7 +43,7 @@ import { useSearchParams } from 'react-router-dom'
 const { Option } = Select
 
 export default function Equipment() {
-  const { equipment, emergencyStopEquipment, unlockEquipment, currentUser } = useAppStore()
+  const { equipment, emergencyStopEquipment, unlockEquipment, currentUser, operationLogs } = useAppStore()
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchParams] = useSearchParams()
@@ -763,6 +765,33 @@ export default function Equipment() {
                   <span className="text-red-300"> 本次紧急停机事件数据已封存，不可删除修改。</span>
                 )}
               </div>
+            </div>
+
+            <div>
+              <div className="text-cyan-300 font-medium mb-3 flex items-center gap-2">
+                <HistoryOutlined /> 操作追溯时间线
+              </div>
+              {operationLogs.filter(log => log.relatedId === selectedEquipment.id).length > 0 ? (
+                <Timeline
+                  items={operationLogs
+                    .filter(log => log.relatedId === selectedEquipment.id)
+                    .map(log => ({
+                      children: (
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-white font-medium">{log.title}</span>
+                            <span className="text-xs text-gray-500">{log.timestamp}</span>
+                          </div>
+                          <div className="text-sm text-gray-400">{log.description}</div>
+                          <div className="text-xs text-gray-500 mt-1">操作人：{log.operator}</div>
+                        </div>
+                      )
+                    }))
+                  }
+                />
+              ) : (
+                <div className="text-gray-500 text-sm">暂无操作记录</div>
+              )}
             </div>
           </div>
         )}

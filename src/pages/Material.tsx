@@ -14,6 +14,7 @@ import {
   Alert,
   Input,
   Form,
+  Timeline,
   message
 } from 'antd'
 import {
@@ -27,7 +28,8 @@ import {
   RiseOutlined,
   CameraOutlined,
   TruckOutlined,
-  UserOutlined
+  UserOutlined,
+  HistoryOutlined
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
@@ -41,7 +43,7 @@ const { Option } = Select
 const { TextArea } = Input
 
 export default function Material() {
-  const { materials, updateMaterialAcceptance, currentUser } = useAppStore()
+  const { materials, updateMaterialAcceptance, currentUser, operationLogs } = useAppStore()
   const [supplierFilter, setSupplierFilter] = useState<string>('all')
   const [resultFilter, setResultFilter] = useState<string>('all')
   const [searchParams] = useSearchParams()
@@ -564,6 +566,33 @@ export default function Material() {
               description={`本批次材料地磅数据自动采集，拍照留证，所有记录不可篡改。单号：${selectedMaterial.deliveryOrderNo}，可追溯审计。`}
               className="bg-blue-500/10 border-blue-500/30"
             />
+
+            <div>
+              <div className="text-cyan-300 font-medium mb-3 flex items-center gap-2">
+                <HistoryOutlined /> 操作追溯时间线
+              </div>
+              {operationLogs.filter(log => log.relatedId === selectedMaterial.id).length > 0 ? (
+                <Timeline
+                  items={operationLogs
+                    .filter(log => log.relatedId === selectedMaterial.id)
+                    .map(log => ({
+                      children: (
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-white font-medium">{log.title}</span>
+                            <span className="text-xs text-gray-500">{log.timestamp}</span>
+                          </div>
+                          <div className="text-sm text-gray-400">{log.description}</div>
+                          <div className="text-xs text-gray-500 mt-1">操作人：{log.operator}</div>
+                        </div>
+                      )
+                    }))
+                  }
+                />
+              ) : (
+                <div className="text-gray-500 text-sm">暂无操作记录</div>
+              )}
+            </div>
           </div>
         )}
       </Modal>

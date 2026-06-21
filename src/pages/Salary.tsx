@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Space, Row, Col, Progress, List, Descriptions, message, Alert } from 'antd'
-import { DollarOutlined, WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, EyeOutlined, SearchOutlined, BankOutlined, UserOutlined, TeamOutlined, FileTextOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Space, Row, Col, Progress, List, Descriptions, message, Alert, Timeline } from 'antd'
+import { DollarOutlined, WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, EyeOutlined, SearchOutlined, BankOutlined, UserOutlined, TeamOutlined, FileTextOutlined, HistoryOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 import { useAppStore } from '@/store/useStore'
@@ -14,7 +14,7 @@ const { Option } = Select
 const { TextArea } = Input
 
 export default function Salary() {
-  const { salaryRecords, workers, approveSalary, paySalary, retryPaySalary, currentUser } = useAppStore()
+  const { salaryRecords, workers, approveSalary, paySalary, retryPaySalary, currentUser, operationLogs } = useAppStore()
   const [selectedMonth, setSelectedMonth] = useState('2025-05')
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -50,7 +50,7 @@ export default function Salary() {
     return salaryRecords.filter(r => {
       const matchMonth = r.month === selectedMonth
       const matchSearch = r.workerName.includes(searchText) || r.workType.includes(searchText)
-      const matchStatus = statusFilter === 'all' || r.status === statusFilter
+      const matchStatus = statusFilter === 'all' || (statusFilter === 'to-pay' ? (r.status === 'pending' || r.status === 'approved') : r.status === statusFilter)
       const matchTeam = teamFilter === 'all' || r.team === teamFilter
       return matchMonth && matchSearch && matchStatus && matchTeam
     })
@@ -817,6 +817,7 @@ export default function Salary() {
               className="w-32 bg-slate-800/50"
               options={[
                 { value: 'all', label: '全部状态' },
+                { value: 'to-pay', label: '待发放' },
                 { value: 'pending', label: '待审核' },
                 { value: 'approved', label: '已审核' },
                 { value: 'paid', label: '已发放' },
@@ -966,13 +967,36 @@ export default function Salary() {
                 </div>
               </div>
             </Card>
+
+            <Card size="small" className="bg-slate-800/50 border-slate-600" styles={{ body: { padding: '12px' } }}>
+              <h4 className="text-white text-sm font-medium mb-3 flex items-center gap-2">
+                <HistoryOutlined className="text-blue-400" />
+                操作追溯时间线
+              </h4>
+              {operationLogs.filter(log => log.relatedId === currentRecord.id).length > 0 ? (
+                <Timeline
+                  items={operationLogs
+                    .filter(log => log.relatedId === currentRecord.id)
+                    .map(log => ({
+                      children: (
+                        <div>
+                          <div className="text-white text-sm">{log.title} - {log.description}</div>
+                          <div className="text-gray-500 text-xs mt-1">{log.operator} · {log.timestamp}</div>
+                        </div>
+                      )
+                    }))
+                  }
+                />
+              ) : (
+                <div className="text-gray-500 text-sm text-center py-4">暂无操作记录</div>
+              )}
+            </Card>
           </div>
         )}
       </Modal>
 
       <Modal
         title="工资审核"
-        open={auditModal}
         onCancel={() => setAuditModal(false)}
         onOk={handleAudit}
         okText="审核通过"

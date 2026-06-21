@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Row, Col, Progress, List, Avatar, Space, Tag, Badge, Tooltip, Empty, Button } from 'antd'
+import { Card, Row, Col, Progress, List, Avatar, Space, Tag, Badge, Tooltip, Empty, Button, Select, DatePicker } from 'antd'
 import {
   TeamOutlined,
   SafetyOutlined,
@@ -17,7 +17,9 @@ import {
   AuditOutlined,
   FileProtectOutlined,
   NotificationOutlined,
-  RightOutlined
+  RightOutlined,
+  FilterOutlined,
+  HistoryOutlined
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import StatCard from '@/components/StatCard'
@@ -68,6 +70,8 @@ const logModuleLabel: Record<string, string> = {
 export default function Dashboard() {
   const navigate = useNavigate()
   const { stats, workers, safetyAlerts, equipment, workOrders, progressTasks, materials, salaryRecords, operationLogs } = useAppStore()
+  const [logModuleFilter, setLogModuleFilter] = useState<string>('all')
+  const [logTimeFilter, setLogTimeFilter] = useState<string>('all')
 
   const workTypeStats = useMemo(() => {
     const map: Record<string, number> = {}
@@ -285,7 +289,22 @@ export default function Dashboard() {
 
   const recentAlerts = safetyAlerts.slice(0, 5)
   const recentOrders = workOrders.slice(0, 5)
-  const recentLogs = operationLogs.slice(0, 10)
+
+  const filteredLogs = useMemo(() => {
+    let logs = operationLogs
+    if (logModuleFilter !== 'all') {
+      logs = logs.filter(l => l.module === logModuleFilter)
+    }
+    if (logTimeFilter !== 'all') {
+      const now = new Date()
+      const cutoff = new Date()
+      if (logTimeFilter === '1h') cutoff.setHours(now.getHours() - 1)
+      else if (logTimeFilter === '24h') cutoff.setDate(now.getDate() - 1)
+      else if (logTimeFilter === '7d') cutoff.setDate(now.getDate() - 7)
+      logs = logs.filter(l => new Date(l.timestamp) >= cutoff)
+    }
+    return logs.slice(0, 15)
+  }, [operationLogs, logModuleFilter, logTimeFilter])
 
   const handleCardClick = (path: string, filter?: string) => {
     if (filter) {
@@ -422,9 +441,12 @@ export default function Dashboard() {
               color="blue"
               suffix={
                 <span className="text-xs text-gray-400 ml-2">
-                  运行 <span className="text-green-400 font-bold">{stats.equipmentRunning}</span> 台
+                  运行 <span className="text-green-400 font-bold cursor-pointer hover:underline" onClick={(e) => { e.stopPropagation(); handleCardClick('/equipment', 'running') }}>{stats.equipmentRunning}</span> 台
+                  {stats.equipmentDanger > 0 && (
+                    <span className="ml-1">危险 <span className="text-red-400 font-bold cursor-pointer hover:underline" onClick={(e) => { e.stopPropagation(); handleCardClick('/equipment', 'danger') }}>{stats.equipmentDanger}</span></span>
+                  )}
                   {stats.equipmentLocked > 0 && (
-                    <span className="ml-1">锁机 <span className="text-red-400 font-bold">{stats.equipmentLocked}</span></span>
+                    <span className="ml-1">锁机 <span className="text-orange-400 font-bold cursor-pointer hover:underline" onClick={(e) => { e.stopPropagation(); handleCardClick('/equipment', 'locked') }}>{stats.equipmentLocked}</span></span>
                   )}
                 </span>
               }
@@ -601,12 +623,38 @@ export default function Dashboard() {
             title={<span className="panel-title"><NotificationOutlined /> 全局操作动态</span>}
             bordered={false}
             extra={
-              <span className="text-gray-400 text-xs">
-                实时记录各模块操作，点击可跳转对应模块
-              </span>
+              <Space size="middle">
+                <Select
+                  size="small"
+                  value={logModuleFilter}
+                  onChange={setLogModuleFilter}
+                  className="w-28"
+                  options={[
+                    { value: 'all', label: '全部模块' },
+                    { value: 'personnel', label: '人员' },
+                    { value: 'material', label: '物料' },
+                    { value: 'salary', label: '工资' },
+                    { value: 'equipment', label: '设备' },
+                    { value: 'workorder', label: '工单' },
+                    { value: 'safety', label: '安全' }
+                  ]}
+                />
+                <Select
+                  size="small"
+                  value={logTimeFilter}
+                  onChange={setLogTimeFilter}
+                  className="w-28"
+                  options={[
+                    { value: 'all', label: '全部时间' },
+                    { value: '1h', label: '最近1小时' },
+                    { value: '24h', label: '最近24小时' },
+                    { value: '7d', label: '最近7天' }
+                  ]}
+                />
+              </Space>
             }
           >
-            {recentLogs.length === 0 ? (
+            {filteredLogs.length === 0 ? (
               <div className="py-8">
                 <Empty
                   description={<span className="text-gray-400">暂无操作记录，各模块操作后将实时显示在此处</span>}
@@ -615,7 +663,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {recentLogs.map((log) => (
+                {filteredLogs.map((log) => (
                   <div
                     key={log.id}
                     className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-border-glow hover:border-primary/50 transition-all cursor-pointer group"
@@ -743,7 +791,7 @@ export default function Dashboard() {
                 <span className="text-gray-400">已发放</span>
                 <span className="text-green-400">{paidCount} 人</span>
               </div>
-              <div className="data-item cursor-pointer" onClick={(e) => { e.stopPropagation(); handleCardClick('/salary', 'pending') }}>
+              <div className="data-item cursor-pointer" onClick={(e) => { e.stopPropagation(); handleCardClick('/salary', 'to-pay') }}>
                 <span className="text-gray-400">待发放</span>
                 <span className="text-yellow-400">{approvedCount + pendingSalCount} 人</span>
               </div>
