@@ -11,7 +11,10 @@ import {
   Tag,
   Descriptions,
   Space,
-  Alert
+  Alert,
+  Input,
+  Form,
+  message
 } from 'antd'
 import {
   StockOutlined,
@@ -23,7 +26,8 @@ import {
   CarOutlined,
   RiseOutlined,
   CameraOutlined,
-  TruckOutlined
+  TruckOutlined,
+  UserOutlined
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
@@ -33,13 +37,18 @@ import { useAppStore } from '@/store/useStore'
 import type { Material } from '@/types'
 
 const { Option } = Select
+const { TextArea } = Input
 
 export default function Material() {
-  const { materials } = useAppStore()
+  const { materials, updateMaterialAcceptance, currentUser } = useAppStore()
   const [supplierFilter, setSupplierFilter] = useState<string>('all')
   const [resultFilter, setResultFilter] = useState<string>('all')
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
+  const [remarkModalVisible, setRemarkModalVisible] = useState(false)
+  const [remarkForm] = Form.useForm()
+  const [pendingAcceptType, setPendingAcceptType] = useState<'passed' | 'rejected' | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const suppliers = useMemo(() => [...new Set(materials.map(m => m.supplier))], [materials])
   const materialNames = useMemo(() => [...new Set(materials.map(m => m.name))], [materials])
@@ -197,6 +206,38 @@ export default function Material() {
   const handleView = (material: Material) => {
     setSelectedMaterial(material)
     setModalVisible(true)
+  }
+
+  const openRemarkDialog = (type: 'passed' | 'rejected') => {
+    setPendingAcceptType(type)
+    remarkForm.resetFields()
+    remarkForm.setFieldsValue({ operator: currentUser.name })
+    setRemarkModalVisible(true)
+  }
+
+  const handleAcceptance = async () => {
+    if (!selectedMaterial || !pendingAcceptType) return
+    try {
+      setSubmitting(true)
+      const values = await remarkForm.validateFields()
+      const isOverDiff = Math.abs(selectedMaterial.weightDiffPercent) > 3
+      const remark = values.remark || (pendingAcceptType === 'rejected' ? '验收不合格，材料不符合要求。' :
+        isOverDiff ? `经材料员确认，超差${Math.abs(selectedMaterial.weightDiffPercent).toFixed(2)}%在合理范围内，同意接收。` : '验收合格。')
+      const operator = values.operator || currentUser.name
+
+      updateMaterialAcceptance(selectedMaterial.id, pendingAcceptType, operator, remark)
+      setRemarkModalVisible(false)
+      setModalVisible(false)
+      message.success(
+        pendingAcceptType === 'passed'
+          ? (isOverDiff ? `验收通过！已记录材料员「${operator}」超差确认信息。` : '验收通过！')
+          : '验收已拒绝。'
+      )
+    } catch (e: any) {
+      if (e?.errorFields) return
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const columns = [
@@ -410,10 +451,10 @@ export default function Material() {
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
         footer={selectedMaterial?.acceptanceResult === 'pending' ? [
-          <Button key="reject" danger onClick={() => console.log('reject')}>
+          <Button key="reject" danger onClick={() => openRemarkDialog('rejected')}>
             <CloseCircleOutlined /> 验收拒绝
           </Button>,
-          <Button key="pass" type="primary" onClick={() => console.log('pass')}>
+          <Button key="pass" type="primary" onClick={() => openRemarkDialog('passed')}>
             <CheckCircleOutlined /> 验收通过
           </Button>
         ] : null}
@@ -458,10 +499,29 @@ export default function Material() {
               <Descriptions.Item label="验收结果">
                 <StatusTag status={selectedMaterial.acceptanceResult} type="material" />
               </Descriptions.Item>
-              <Descriptions.Item label="验收员">{selectedMaterial.operator}</Descriptions.Item>
+              <Descriptions.Item label="过磅员">{selectedMaterial.operator}</Descriptions.Item>
+              {selectedMaterial.acceptanceResult !== 'pending' && (
+                <>
+                  <Descriptions.Item label="验收员">
+                    <span className="inline-flex items-center gap-1">
+                      <UserOutlined /> {selectedMaterial.acceptanceOperator || '-'}
+                    </span>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="验收时间">
+                    {selectedMaterial.acceptanceTime || '-'}
+                  </Descriptions.Item>
+                </>
+              )}
               <Descriptions.Item label="进场时间" span={2}>
                 {selectedMaterial.entryTime}
               </Descriptions.Item>
+              {selectedMaterial.acceptanceRemark && (
+                <Descriptions.Item label="验收备注" span={2}>
+                  <div className="p-2 rounded bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-xs">
+                    {selectedMaterial.acceptanceRemark}
+                  </div>
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <div>
@@ -490,6 +550,56 @@ export default function Material() {
             />
           </div>
         )}
+      </Modal>
+
+      <Modal
+        title={pendingAcceptType === 'passed' ? '确认验收通过' : '确认验收拒绝'}
+        open={remarkModalVisible}
+        onCancel={() => setRemarkModalVisible(false)}
+        confirmLoading={submitting}
+        onOk={handleAcceptance}
+        okText="确认提交"
+        width={520}
+        destroyOnClose
+      >
+        <Form form={remarkForm} layout="vertical" preserve={false}>
+          {selectedMaterial && Math.abs(selectedMaterial.weightDiffPercent) > 3 && pendingAcceptType === 'passed' && (
+            <Alert
+              type="warning"
+              showIcon
+              icon={<WarningOutlined />}
+              message={`重量超差预警：偏差率 ${selectedMaterial.weightDiffPercent > 0 ? '+' : ''}${selectedMaterial.weightDiffPercent}%`}
+              description="本批次材料与送货单重量差异超过±3%阈值，请材料员谨慎确认并说明理由。"
+              className="mb-4 bg-yellow-500/10 border-yellow-500/30"
+            />
+          )}
+          <Form.Item
+            label="材料员姓名"
+            name="operator"
+            rules={[{ required: true, message: '请填写材料员姓名' }]}
+          >
+            <Input prefix={<UserOutlined />} placeholder="请输入或确认材料员姓名" />
+          </Form.Item>
+          <Form.Item
+            label={pendingAcceptType === 'passed' ? (selectedMaterial && Math.abs(selectedMaterial.weightDiffPercent) > 3 ? '超差确认说明（必填）' : '验收备注（选填）') : '拒绝原因（必填）'}
+            name="remark"
+            rules={[
+              {
+                required: !!(pendingAcceptType === 'rejected' || (selectedMaterial && Math.abs(selectedMaterial.weightDiffPercent) > 3)),
+                message: '请填写说明'
+              }
+            ]}
+          >
+            <TextArea
+              rows={4}
+              placeholder={pendingAcceptType === 'passed'
+                ? (selectedMaterial && Math.abs(selectedMaterial.weightDiffPercent) > 3
+                    ? '请详细说明超差可通过的原因，如：材料含水率差异、过磅误差可接受、现场抽检合格等...'
+                    : '可选填验收意见，如规格符合要求、数量准确、质量合格等...')
+                : '请详细说明验收拒绝原因，如：规格型号不符、数量严重不足、外观有损伤、检测不合格等...'}
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )

@@ -11,7 +11,9 @@ import {
   Descriptions,
   Badge,
   Tag,
-  Space
+  Space,
+  Alert,
+  message
 } from 'antd'
 import {
   ToolOutlined,
@@ -34,11 +36,12 @@ import type { Equipment } from '@/types'
 const { Option } = Select
 
 export default function Equipment() {
-  const { equipment } = useAppStore()
+  const { equipment, emergencyStopEquipment, currentUser } = useAppStore()
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null)
+  const [stopping, setStopping] = useState(false)
 
   const types = useMemo(() => [...new Set(equipment.map(e => e.typeName))], [equipment])
 
@@ -52,10 +55,11 @@ export default function Equipment() {
 
   const stats = useMemo(() => ({
     total: equipment.length,
-    running: equipment.filter(e => e.status === 'running').length,
+    running: equipment.filter(e => e.status === 'running' && !e.isLocked).length,
     warning: equipment.filter(e => e.status === 'warning').length,
-    danger: equipment.filter(e => e.status === 'danger').length,
-    offline: equipment.filter(e => e.status === 'offline').length
+    danger: equipment.filter(e => e.status === 'danger' || e.isLocked).length,
+    offline: equipment.filter(e => e.status === 'offline' && !e.isLocked).length,
+    locked: equipment.filter(e => e.isLocked).length
   }), [equipment])
 
   const loadOption = (eq: Equipment) => ({
@@ -150,15 +154,125 @@ export default function Equipment() {
     setModalVisible(true)
   }
 
-  const handleEmergencyStop = () => {
+  const handleEmergencyStop = (equipment?: Equipment) => {
+    const eq = equipment || selectedEquipment
+    if (!eq) {
+      const dangerEqs = filteredEquipment.filter(e => e.status === 'danger' && !e.isLocked)
+      if (dangerEqs.length === 0) {
+        Modal.info({
+          title: '无危险设备',
+          content: '当前所有设备运行正常，若需对特定设备执行保护请进入设备详情操作。'
+        })
+        return
+      }
+      if (dangerEqs.length === 1) {
+        handleEmergencyStop(dangerEqs[0])
+        return
+      }
+      Modal.confirm({
+        title: '选择需紧急停机的设备',
+        content: (
+          <div className="space-y-2 text-sm text-gray-300">
+            检测到 {dangerEqs.length} 台设备处于危险状态：
+            <ul className="space-y-1 mt-2">
+              {dangerEqs.map(d => (
+                <li key={d.id} className="flex justify-between items-center p-2 rounded bg-red-500/10">
+                  <span>{d.name} - {d.location}</span>
+                  <StatusTag status={d.status} type="equipment" />
+                </li>
+              ))}
+            </ul>
+            <div className="text-xs text-yellow-300 mt-2">
+              将对上述所有设备统一执行紧急停机保护。
+            </div>
+          </div>
+        ),
+        okText: '全部停机',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: () => {
+          let count = 0
+          dangerEqs.forEach((d, idx) => {
+            setTimeout(() => {
+              emergencyStopEquipment(d.id, `批量紧急停机：危险状态处置，操作人：${currentUser.name}`)
+              count++
+              if (count === dangerEqs.length) {
+                message.success(`已对 ${dangerEqs.length} 台危险设备执行紧急停机保护`)
+              }
+            }, idx * 250)
+          })
+        }
+      })
+      return
+    }
+    if (eq.isLocked) {
+      Modal.info({
+        title: '设备已锁定',
+        content: `「${eq.name}」已于 ${eq.lockTime} 执行紧急停机保护，当前处于断电/锁机状态，需技术人员排查后解锁。`
+      })
+      return
+    }
     Modal.confirm({
-      title: '确认紧急停机',
-      content: '此操作将立即切断设备电源/锁机，确保现场人员已撤离。是否继续？',
+      title: '⚠️ 确认执行紧急停机保护',
+      content: (
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center gap-2 p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300">
+            <ExclamationCircleOutlined />
+            <span>本操作将立即切断设备电源/锁机，强制执行安全保护！</span>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span className="text-gray-400">设备：</span>
+              <span className="text-white font-medium">{eq.name}（{eq.typeName}）</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">位置：</span>
+              <span>{eq.location}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">当前状态：</span>
+              <StatusTag status={eq.status} type="equipment" />
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">操作员：</span>
+              <span>{eq.operator}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">执行原因：</span>
+              <span className="text-red-300">
+                {eq.status === 'danger' ? '设备已达危险阈值，自动保护触发' : '手动执行紧急停机'}
+              </span>
+            </div>
+          </div>
+          <div className="text-xs text-gray-400">
+            <CheckCircleOutlined className="text-green-400 mr-1" />
+            保护动作：断电 / 锁机 / 断油；黑匣子数据自动保存且不可篡改
+          </div>
+        </div>
+      ),
       okText: '确认停机',
       okType: 'danger',
+      okButtonProps: { loading: stopping },
       cancelText: '取消',
-      onOk() {
-        console.log('紧急停机')
+      onOk: async () => {
+        setStopping(true)
+        const reason = (eq.status === 'danger' ? '危险阈值超限，自动触发紧急停机保护' : '管理员手动触发紧急停机') + `，操作人：${currentUser.name}`
+        emergencyStopEquipment(eq.id, reason)
+        setTimeout(() => {
+          setStopping(false)
+          setModalVisible(false)
+          Modal.success({
+            title: '紧急停机保护已执行',
+            content: (
+              <div className="space-y-2">
+                <div>「{eq.name}」已成功执行断电/锁机保护</div>
+                <div className="text-xs text-gray-400">
+                  黑匣子数据已封存，事故追溯功能可用。设备状态、详情页、统计卡片已同步更新。
+                </div>
+              </div>
+            )
+          })
+        }, 600)
       }
     })
   }
@@ -305,7 +419,7 @@ export default function Equipment() {
               超载、超力矩、倾斜超标、碰撞风险自动预警，达到危险阈值自动执行断电/锁机/断油保护。黑匣子数据不可篡改，支持事故追溯。
             </div>
           </div>
-          <Button danger size="small" icon={<ThunderboltOutlined />} onClick={handleEmergencyStop}>
+          <Button danger size="small" icon={<ThunderboltOutlined />} onClick={() => handleEmergencyStop()}>
             紧急停机
           </Button>
         </div>
@@ -331,6 +445,7 @@ export default function Equipment() {
           <Col xs={24} md={12} lg={8} key={eq.id}>
             <Card 
               className={`panel transition-all hover:border-2 ${
+                eq.isLocked ? 'border-gray-500/60 opacity-80' :
                 eq.status === 'danger' ? 'border-red-500/50 animate-pulse' :
                 eq.status === 'warning' ? 'border-yellow-500/50' : 'border-border-glow'
               }`}
@@ -339,16 +454,27 @@ export default function Equipment() {
               actions={[
                 <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleView(eq)}>
                   查看详情
-                </Button>
+                </Button>,
+                !eq.isLocked && (eq.status === 'danger' || eq.status === 'warning') ? (
+                  <Button type="link" size="small" danger icon={<ThunderboltOutlined />} onClick={() => handleEmergencyStop(eq)}>
+                    紧急停机
+                  </Button>
+                ) : (
+                  <span className="text-gray-500 text-xs py-1">
+                    {eq.isLocked ? '🔒 已断电锁机' : '运行正常'}
+                  </span>
+                )
               ]}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                    eq.isLocked ? 'bg-gray-500/30' :
                     eq.type === 'tower-crane' ? 'bg-blue-500/20' :
                     eq.type === 'elevator' ? 'bg-green-500/20' : 'bg-purple-500/20'
                   }`}>
-                    {eq.type === 'tower-crane' ? <RiseOutlined className="text-blue-400 text-xl" /> :
+                    {eq.isLocked ? <ThunderboltOutlined className="text-gray-400 text-xl" /> :
+                     eq.type === 'tower-crane' ? <RiseOutlined className="text-blue-400 text-xl" /> :
                      eq.type === 'elevator' ? <ArrowUpOutlined className="text-green-400 text-xl" /> :
                      <DashboardOutlined className="text-purple-400 text-xl" />}
                   </div>
@@ -357,33 +483,46 @@ export default function Equipment() {
                     <div className="text-xs text-gray-400">{eq.typeName} · {eq.model}</div>
                   </div>
                 </div>
-                <StatusTag status={eq.status} type="equipment" />
+                <div className="text-right">
+                  <StatusTag status={eq.status} type="equipment" />
+                  {eq.isLocked && (
+                    <div className="mt-1 text-xs text-red-400 font-mono">已锁机</div>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2 mb-4">
                 <div className="text-center p-2 rounded bg-white/5">
-                  <div className="text-xl font-bold text-cyan-300 font-mono">{eq.height}</div>
+                  <div className="text-xl font-bold text-cyan-300 font-mono">{eq.isLocked ? '--' : eq.height}</div>
                   <div className="text-xs text-gray-400">高度 (m)</div>
                 </div>
                 <div className="text-center p-2 rounded bg-white/5">
                   <div className={`text-xl font-bold font-mono ${
+                    eq.isLocked ? 'text-gray-500' :
                     eq.windSpeed > 6 ? 'text-red-400' : eq.windSpeed > 4 ? 'text-yellow-400' : 'text-green-400'
-                  }`}>{eq.windSpeed}</div>
+                  }`}>{eq.isLocked ? '--' : eq.windSpeed}</div>
                   <div className="text-xs text-gray-400">风速 (m/s)</div>
                 </div>
                 <div className="text-center p-2 rounded bg-white/5">
                   <div className={`text-xl font-bold font-mono ${
+                    eq.isLocked ? 'text-gray-500' :
                     eq.angle > 3 ? 'text-red-400' : eq.angle > 2 ? 'text-yellow-400' : 'text-green-400'
-                  }`}>{eq.angle}°</div>
+                  }`}>{eq.isLocked ? '--' : eq.angle}°</div>
                   <div className="text-xs text-gray-400">倾角</div>
                 </div>
               </div>
 
-              <ReactECharts option={loadOption(eq)} style={{ height: 100 }} />
+              {!eq.isLocked && <ReactECharts option={loadOption(eq)} style={{ height: 100 }} />}
+              {eq.isLocked && (
+                <div className="h-[100px] flex items-center justify-center rounded bg-gray-500/10 border border-gray-500/30 text-gray-400 text-sm">
+                  <ThunderboltOutlined className="mr-2 text-red-400" />
+                  设备已锁定，数据采集暂停
+                </div>
+              )}
               
               <div className="mt-2 pt-3 border-t border-border-glow text-xs text-gray-400 flex justify-between">
                 <span>司机: {eq.operator}</span>
-                <span>{eq.lastUpdate}</span>
+                <span>{eq.isLocked ? `锁机时间: ${eq.lockTime}` : eq.lastUpdate}</span>
               </div>
             </Card>
           </Col>
@@ -439,8 +578,8 @@ export default function Equipment() {
         title="设备详情"
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        footer={selectedEquipment?.status === 'danger' ? [
-          <Button key="stop" type="primary" danger icon={<ThunderboltOutlined />} onClick={handleEmergencyStop}>
+        footer={selectedEquipment && !selectedEquipment.isLocked && (selectedEquipment.status === 'danger' || selectedEquipment.status === 'warning') ? [
+          <Button key="stop" type="primary" danger icon={<ThunderboltOutlined />} onClick={() => handleEmergencyStop(selectedEquipment)}>
             紧急停机
           </Button>
         ] : null}
@@ -450,10 +589,12 @@ export default function Equipment() {
           <div className="space-y-4">
             <div className="flex items-center gap-4 mb-4">
               <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${
+                selectedEquipment.isLocked ? 'bg-gray-500/30' :
                 selectedEquipment.type === 'tower-crane' ? 'bg-blue-500/20' :
                 selectedEquipment.type === 'elevator' ? 'bg-green-500/20' : 'bg-purple-500/20'
               }`}>
-                {selectedEquipment.type === 'tower-crane' ? <RiseOutlined className="text-blue-400 text-3xl" /> :
+                {selectedEquipment.isLocked ? <ThunderboltOutlined className="text-gray-400 text-3xl" /> :
+                 selectedEquipment.type === 'tower-crane' ? <RiseOutlined className="text-blue-400 text-3xl" /> :
                  selectedEquipment.type === 'elevator' ? <ArrowUpOutlined className="text-green-400 text-3xl" /> :
                  <DashboardOutlined className="text-purple-400 text-3xl" />}
               </div>
@@ -461,44 +602,65 @@ export default function Equipment() {
                 <h3 className="text-xl font-bold text-white">{selectedEquipment.name}</h3>
                 <div className="flex items-center gap-2 mt-1">
                   <StatusTag status={selectedEquipment.status} type="equipment" />
+                  {selectedEquipment.isLocked && (
+                    <Tag color="red" icon={<ThunderboltOutlined />}>已断电锁机</Tag>
+                  )}
                   <span className="text-gray-400">{selectedEquipment.typeName} · {selectedEquipment.model}</span>
                 </div>
               </div>
             </div>
 
+            {selectedEquipment.isLocked && (
+              <Alert
+                type="error"
+                showIcon
+                icon={<ThunderboltOutlined />}
+                message="设备已执行紧急停机保护"
+                description={
+                  <div className="space-y-1">
+                    <div><span className="text-gray-400">锁机时间：</span>{selectedEquipment.lockTime}</div>
+                    <div><span className="text-gray-400">锁机原因：</span>{selectedEquipment.lockReason}</div>
+                    <div className="text-xs text-yellow-300 mt-1">
+                      当前设备已断电/锁机/断油，需由持证技术人员排查隐患并确认安全后方可解锁复位。
+                    </div>
+                  </div>
+                }
+              />
+            )}
+
             <Descriptions column={2} bordered size="small" className="text-sm">
               <Descriptions.Item label="设备编号">{selectedEquipment.id}</Descriptions.Item>
               <Descriptions.Item label="所在位置">{selectedEquipment.location}</Descriptions.Item>
               <Descriptions.Item label="当前载重">
-                <span className={selectedEquipment.load / selectedEquipment.maxLoad > 0.9 ? 'text-red-400' : 
-                                selectedEquipment.load / selectedEquipment.maxLoad > 0.7 ? 'text-yellow-400' : 'text-green-400'}>
-                  {selectedEquipment.load} / {selectedEquipment.maxLoad} 吨
+                <span className={!selectedEquipment.isLocked && selectedEquipment.load / selectedEquipment.maxLoad > 0.9 ? 'text-red-400' : 
+                                !selectedEquipment.isLocked && selectedEquipment.load / selectedEquipment.maxLoad > 0.7 ? 'text-yellow-400' : 'text-green-400'}>
+                  {selectedEquipment.isLocked ? '--' : `${selectedEquipment.load} / ${selectedEquipment.maxLoad} 吨`}
                 </span>
               </Descriptions.Item>
               <Descriptions.Item label="当前力矩">
-                <span className={selectedEquipment.moment > selectedEquipment.maxMoment ? 'text-red-400' : 'text-white'}>
-                  {selectedEquipment.moment} / {selectedEquipment.maxMoment} kN·m
+                <span className={!selectedEquipment.isLocked && selectedEquipment.moment > selectedEquipment.maxMoment ? 'text-red-400' : 'text-white'}>
+                  {selectedEquipment.isLocked ? '--' : `${selectedEquipment.moment} / ${selectedEquipment.maxMoment} kN·m`}
                 </span>
               </Descriptions.Item>
-              <Descriptions.Item label="当前高度">{selectedEquipment.height} m</Descriptions.Item>
-              <Descriptions.Item label="当前倾角">{selectedEquipment.angle}°</Descriptions.Item>
+              <Descriptions.Item label="当前高度">{selectedEquipment.isLocked ? '--' : `${selectedEquipment.height} m`}</Descriptions.Item>
+              <Descriptions.Item label="当前倾角">{selectedEquipment.isLocked ? '--' : `${selectedEquipment.angle}°`}</Descriptions.Item>
               <Descriptions.Item label="当前风速">
-                <span className={selectedEquipment.windSpeed > 6 ? 'text-red-400' : 
-                                selectedEquipment.windSpeed > 4 ? 'text-yellow-400' : 'text-green-400'}>
-                  {selectedEquipment.windSpeed} m/s
+                <span className={!selectedEquipment.isLocked && selectedEquipment.windSpeed > 6 ? 'text-red-400' : 
+                                !selectedEquipment.isLocked && selectedEquipment.windSpeed > 4 ? 'text-yellow-400' : 'text-green-400'}>
+                  {selectedEquipment.isLocked ? '--' : `${selectedEquipment.windSpeed} m/s`}
                 </span>
               </Descriptions.Item>
               <Descriptions.Item label="限位状态">
                 <Tag color={selectedEquipment.limitStatus === '正常' ? 'green' : 
                            selectedEquipment.limitStatus.includes('预警') ? 'orange' : 'red'}>
-                  {selectedEquipment.limitStatus}
+                  {selectedEquipment.isLocked ? '已保护锁定' : selectedEquipment.limitStatus}
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="操作人员">{selectedEquipment.operator}</Descriptions.Item>
-              <Descriptions.Item label="数据更新">{selectedEquipment.lastUpdate}</Descriptions.Item>
+              <Descriptions.Item label="数据更新">{selectedEquipment.isLocked ? `锁定于 ${selectedEquipment.lockTime}` : selectedEquipment.lastUpdate}</Descriptions.Item>
             </Descriptions>
 
-            {selectedEquipment.status === 'danger' && (
+            {!selectedEquipment.isLocked && selectedEquipment.status === 'danger' && (
               <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 animate-pulse">
                 <div className="flex items-center gap-2 text-red-400">
                   <ExclamationCircleOutlined className="text-xl" />
@@ -514,6 +676,9 @@ export default function Equipment() {
               <div className="text-blue-400 font-medium mb-2">黑匣子数据</div>
               <div className="text-sm text-gray-400">
                 所有运行数据实时加密存储，不可篡改，保留周期5年，支持事故追溯和监管检查。
+                {selectedEquipment.isLocked && (
+                  <span className="text-red-300"> 本次紧急停机事件数据已封存，不可删除修改。</span>
+                )}
               </div>
             </div>
           </div>

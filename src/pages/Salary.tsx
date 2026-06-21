@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Space, Row, Col, Progress, List, Descriptions, message } from 'antd'
+import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Space, Row, Col, Progress, List, Descriptions, message, Alert } from 'antd'
 import { DollarOutlined, WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, EyeOutlined, SearchOutlined, BankOutlined, UserOutlined, TeamOutlined, FileTextOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
@@ -13,7 +13,7 @@ const { Option } = Select
 const { TextArea } = Input
 
 export default function Salary() {
-  const { salaryRecords, workers } = useAppStore()
+  const { salaryRecords, workers, approveSalary, paySalary, retryPaySalary, currentUser } = useAppStore()
   const [selectedMonth, setSelectedMonth] = useState('2025-05')
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -22,6 +22,7 @@ export default function Salary() {
   const [currentRecord, setCurrentRecord] = useState<SalaryRecord | null>(null)
   const [auditModal, setAuditModal] = useState(false)
   const [payModal, setPayModal] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm()
 
   const teams = useMemo(() => {
@@ -484,32 +485,121 @@ export default function Salary() {
               发放
             </Button>
           )}
+          {record.status === 'failed' && (
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<WarningOutlined />}
+              onClick={() => handleRetryPay(record)}
+            >
+              重试
+            </Button>
+          )}
         </Space>
       )
     }
   ]
 
-  const handleAudit = () => {
-    form.validateFields().then(() => {
-      message.success('审核通过，已提交发放')
+  const handleAudit = async () => {
+    try {
+      setSubmitting(true)
+      await form.validateFields()
+      if (currentRecord) {
+        approveSalary([currentRecord.id])
+        message.success(`审核通过！工资记录「${currentRecord.workerName}」已提交发放队列，审核人：${currentUser.name}`)
+      }
       setAuditModal(false)
       form.resetFields()
-    })
+    } catch (e: any) {
+      if (e?.errorFields) return
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handlePay = () => {
-    message.success('工资已通过专户银行发放')
-    setPayModal(false)
+    if (!currentRecord) return
+    setSubmitting(true)
+    paySalary([currentRecord.id])
+    setTimeout(() => {
+      setSubmitting(false)
+      setPayModal(false)
+      message.success(`工资已发放至「${currentRecord.workerName}」银行账户，银行流水号已生成。`)
+    }, 800)
   }
 
   const handleBatchPay = () => {
+    const ids = salaryRecords.filter(r => r.month === selectedMonth && r.status === 'approved').map(r => r.id)
+    if (ids.length === 0) {
+      message.warning('当前月份暂无已审核通过待发放的工资记录')
+      return
+    }
+    const amount = salaryRecords
+      .filter(r => r.month === selectedMonth && r.status === 'approved')
+      .reduce((s, r) => s + r.totalSalary, 0)
     Modal.confirm({
       title: '确认批量发放',
-      content: `确定将 ${stats.approvedCount} 条已审核通过的工资记录提交银行发放？`,
+      content: (
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-400">发放月份：</span>
+            <span>{selectedMonth}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">发放条数：</span>
+            <span>{ids.length} 条</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">发放总金额：</span>
+            <span className="text-cyan-300 font-bold text-lg font-mono">¥{amount.toLocaleString()}</span>
+          </div>
+          <Alert
+            type="info"
+            showIcon
+            message="银行专户批量划转"
+            description="系统将通过对接工资专户银行接口，按批次完成自动发放，发放记录、银行流水、签收凭证将自动归档。"
+            className="mt-3 !bg-blue-500/10 !border-blue-500/30"
+          />
+        </div>
+      ),
       okText: '确认发放',
       cancelText: '取消',
+      onOk: async () => {
+        setSubmitting(true)
+        paySalary(ids)
+        setTimeout(() => {
+          setSubmitting(false)
+          message.success(`已成功提交 ${ids.length} 条发放指令至银行专户，合计 ¥${amount.toLocaleString()}`)
+        }, 1000)
+      }
+    })
+  }
+
+  const handleRetryPay = (record: SalaryRecord) => {
+    Modal.confirm({
+      title: '重新发放工资',
+      content: (
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <span className="text-gray-400">工人：</span>
+            <span>{record.workerName}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">发放金额：</span>
+            <span className="text-cyan-300 font-mono font-bold">¥{record.totalSalary.toLocaleString()}</span>
+          </div>
+          <div className="text-xs text-yellow-300 p-2 rounded bg-yellow-500/10 border border-yellow-500/20">
+            <WarningOutlined className="mr-1" />
+            此前发放失败，正在请求银行专户接口重试。请确认银行账户信息正常。
+          </div>
+        </div>
+      ),
+      okText: '重新发放',
+      cancelText: '取消',
       onOk: () => {
-        message.success(`已成功提交 ${stats.approvedCount} 条发放指令至银行专户`)
+        retryPaySalary(record.id)
+        message.success(`已重新发放工资至「${record.workerName}」，银行流水号已生成。`)
       }
     })
   }
@@ -870,6 +960,7 @@ export default function Salary() {
         onCancel={() => setAuditModal(false)}
         onOk={handleAudit}
         okText="审核通过"
+        confirmLoading={submitting}
         styles={{ content: { backgroundColor: '#1e293b', border: '1px solid #334155' } }}
       >
         {currentRecord && (
@@ -903,6 +994,7 @@ export default function Salary() {
         onOk={handlePay}
         okText="确认发放"
         okType="primary"
+        confirmLoading={submitting}
         styles={{ content: { backgroundColor: '#1e293b', border: '1px solid #334155' } }}
       >
         {currentRecord && (

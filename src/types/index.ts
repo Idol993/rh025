@@ -42,6 +42,9 @@ export interface Equipment {
   typeName: string
   model: string
   status: 'running' | 'warning' | 'danger' | 'offline'
+  isLocked?: boolean
+  lockReason?: string
+  lockTime?: string
   load: number
   maxLoad: number
   angle: number
@@ -67,6 +70,9 @@ export interface Material {
   weightDiff: number
   weightDiffPercent: number
   acceptanceResult: 'passed' | 'rejected' | 'pending'
+  acceptanceOperator?: string
+  acceptanceTime?: string
+  acceptanceRemark?: string
   images: string[]
   usePosition: string
   entryTime: string

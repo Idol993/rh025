@@ -16,7 +16,10 @@ import {
   Statistic,
   Progress,
   List,
-  Space
+  Space,
+  Switch,
+  InputNumber,
+  message
 } from 'antd'
 import {
   TeamOutlined,
@@ -46,7 +49,7 @@ const { Option } = Select
 const { TabPane } = Tabs
 
 export default function Personnel() {
-  const { workers } = useAppStore()
+  const { workers, addWorker, updateWorker } = useAppStore()
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [workTypeFilter, setWorkTypeFilter] = useState<string>('all')
@@ -55,6 +58,7 @@ export default function Personnel() {
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null)
   const [actionType, setActionType] = useState<'view' | 'add' | 'edit'>('view')
   const [form] = Form.useForm()
+  const [submitting, setSubmitting] = useState(false)
 
   const workTypes = useMemo(() => [...new Set(workers.map(w => w.workType))], [workers])
   const teams = useMemo(() => [...new Set(workers.map(w => w.team))], [workers])
@@ -197,14 +201,67 @@ export default function Personnel() {
     setSelectedWorker(null)
     setActionType('add')
     form.resetFields()
+    form.setFieldsValue({
+      trainingHours: 0,
+      trainingPassed: false,
+      'certificate.type': '上岗证',
+      'certificate.number': '',
+      'certificate.expiryDate': dayjs().add(1, 'year').format('YYYY-MM-DD'),
+      'certificate.valid': true
+    })
     setModalVisible(true)
   }
 
   const handleEdit = (worker: Worker) => {
     setSelectedWorker(worker)
     setActionType('edit')
-    form.setFieldsValue(worker)
+    form.setFieldsValue({
+      ...worker,
+      'certificate.type': worker.certificate.type,
+      'certificate.number': worker.certificate.number,
+      'certificate.expiryDate': worker.certificate.expiryDate,
+      'certificate.valid': worker.certificate.valid
+    })
     setModalVisible(true)
+  }
+
+  const handleSubmit = async () => {
+    try {
+      setSubmitting(true)
+      const values = await form.validateFields()
+      const certData = {
+        type: values['certificate.type'],
+        number: values['certificate.number'],
+        expiryDate: values['certificate.expiryDate'],
+        valid: values['certificate.valid']
+      }
+      const workerData = {
+        name: values.name,
+        idCard: values.idCard,
+        phone: values.phone,
+        emergencyContact: values.emergencyContact,
+        workType: values.workType,
+        team: values.team,
+        subcontractor: values.subcontractor,
+        trainingHours: values.trainingHours ?? 0,
+        trainingPassed: values.trainingPassed ?? false,
+        certificate: certData
+      }
+
+      if (actionType === 'add') {
+        addWorker(workerData)
+        message.success('工人添加成功！' + ((!workerData.trainingPassed || workerData.trainingHours < 24 || !certData.valid) ? '未满足入场条件，已进入待审核状态。' : '已自动审核通过。'))
+      } else if (actionType === 'edit' && selectedWorker) {
+        updateWorker(selectedWorker.id, workerData)
+        message.success('工人信息更新成功！')
+      }
+      setModalVisible(false)
+    } catch (e: any) {
+      if (e?.errorFields) return
+      message.error('操作失败：' + (e?.message || '数据校验失败'))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const columns = [
@@ -576,55 +633,115 @@ export default function Personnel() {
         onCancel={() => setModalVisible(false)}
         footer={actionType === 'view' ? null : [
           <Button key="cancel" onClick={() => setModalVisible(false)}>取消</Button>,
-          <Button key="submit" type="primary">确定</Button>
+          <Button key="submit" type="primary" loading={submitting} onClick={handleSubmit}>确定</Button>
         ]}
-        width={800}
+        width={900}
+        destroyOnClose
       >
         {actionType === 'view' ? (
           workerDetailTabs
         ) : (
-          <Form form={form} layout="vertical">
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="name" label="姓名" rules={[{ required: true }]}>
-                  <Input placeholder="请输入姓名" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="idCard" label="身份证号" rules={[{ required: true }]}>
-                  <Input placeholder="请输入身份证号" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="phone" label="手机号" rules={[{ required: true }]}>
-                  <Input placeholder="请输入手机号" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="emergencyContact" label="紧急联系人">
-                  <Input placeholder="请输入紧急联系人电话" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="workType" label="工种" rules={[{ required: true }]}>
-                  <Select placeholder="请选择工种">
-                    {workTypes.map(wt => <Option key={wt} value={wt}>{wt}</Option>)}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="team" label="班组" rules={[{ required: true }]}>
-                  <Select placeholder="请选择班组">
-                    {teams.map(t => <Option key={t} value={t}>{t}</Option>)}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={24}>
-                <Form.Item name="subcontractor" label="分包单位" rules={[{ required: true }]}>
-                  <Input placeholder="请输入分包单位" />
-                </Form.Item>
-              </Col>
-            </Row>
+          <Form form={form} layout="vertical" preserve={false}>
+            <Card size="small" title="基本信息" className="bg-white/5 border-border-glow mb-4">
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
+                    <Input placeholder="请输入姓名" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="idCard" label="身份证号" rules={[{ required: true, message: '请输入身份证号' }, { len: 18, message: '身份证号应为18位' }]}>
+                    <Input placeholder="请输入身份证号" maxLength={18} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="phone" label="手机号" rules={[{ required: true, message: '请输入手机号' }, { len: 11, message: '手机号应为11位' }]}>
+                    <Input placeholder="请输入手机号" maxLength={11} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="emergencyContact" label="紧急联系人电话" rules={[{ len: 11, message: '手机号应为11位' }]}>
+                    <Input placeholder="请输入紧急联系人电话" maxLength={11} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="workType" label="工种" rules={[{ required: true, message: '请选择工种' }]}>
+                    <Select placeholder="请选择工种">
+                      {workTypes.map(wt => <Option key={wt} value={wt}>{wt}</Option>)}
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="team" label="班组" rules={[{ required: true, message: '请选择班组' }]}>
+                    <Select placeholder="请选择班组">
+                      {teams.map(t => <Option key={t} value={t}>{t}</Option>)}
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col span={24}>
+                  <Form.Item name="subcontractor" label="分包单位" rules={[{ required: true, message: '请输入分包单位' }]}>
+                    <Input placeholder="请输入分包单位" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Card>
+
+            <Card size="small" title="三级安全教育" className="bg-white/5 border-border-glow mb-4">
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item name="trainingHours" label="培训学时" rules={[{ required: true, message: '请输入培训学时' }]}>
+                    <InputNumber min={0} max={999} className="w-full" placeholder="三级安全教育需≥24学时" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="trainingPassed" label="培训考核通过" valuePropName="checked">
+                    <Switch checkedChildren="通过" unCheckedChildren="未通过" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              {actionType === 'add' && (
+                <div className="p-3 rounded bg-yellow-500/10 border border-yellow-500/20 text-xs text-yellow-300">
+                  <WarningOutlined className="mr-1" />
+                  提示：培训学时不足24学时或考核未通过的人员将自动进入"待审核"状态，禁止入场作业。
+                </div>
+              )}
+            </Card>
+
+            <Card size="small" title="上岗证信息" className="bg-white/5 border-border-glow">
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item name="certificate.type" label="证件类型" rules={[{ required: true }]}>
+                    <Select placeholder="请选择证件类型">
+                      <Option value="上岗证">上岗证</Option>
+                      <Option value="特种作业操作证">特种作业操作证</Option>
+                      <Option value="职业资格证">职业资格证</Option>
+                      <Option value="其他">其他</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="certificate.number" label="证件编号" rules={[{ required: true, message: '请输入证件编号' }]}>
+                    <Input placeholder="请输入证件编号" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="certificate.expiryDate" label="有效期至" rules={[{ required: true, message: '请输入有效期' }]}>
+                    <Input placeholder="YYYY-MM-DD" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="certificate.valid" label="证件是否有效" valuePropName="checked">
+                    <Switch checkedChildren="有效" unCheckedChildren="无效" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              {actionType === 'add' && (
+                <div className="p-3 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-300 mt-2">
+                  <ExclamationCircleOutlined className="mr-1" />
+                  强约束规则：证件无效或过期人员一律禁止入场，系统将自动设为待审核。
+                </div>
+              )}
+            </Card>
           </Form>
         )}
       </Modal>
