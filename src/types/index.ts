@@ -175,6 +175,8 @@ export interface OperationLog {
   type: 'worker-add' | 'worker-edit' | 'material-accept' | 'material-reject' | 'salary-approve' | 'salary-pay' | 'salary-retry' | 'equipment-lock' | 'equipment-unlock' | 'workorder-create' | 'workorder-close' | 'alert-handle'
   module: 'personnel' | 'material' | 'salary' | 'equipment' | 'workorder' | 'safety'
   modulePath: string
+  detailId?: string
+  defaultFilter?: string
   title: string
   description: string
   operator: string

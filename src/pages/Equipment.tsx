@@ -49,7 +49,16 @@ export default function Equipment() {
   useEffect(() => {
     const filter = searchParams.get('filter')
     if (filter) setStatusFilter(filter)
-  }, [])
+
+    const detailId = searchParams.get('detailId')
+    if (detailId) {
+      const eq = equipment.find(e => e.id === detailId)
+      if (eq) {
+        setSelectedEquipment(eq)
+        setModalVisible(true)
+      }
+    }
+  }, [searchParams, equipment])
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null)
   const [stopping, setStopping] = useState(false)
@@ -62,7 +71,8 @@ export default function Equipment() {
   const filteredEquipment = useMemo(() => {
     return equipment.filter(e => {
       const matchType = typeFilter === 'all' || e.typeName === typeFilter
-      const matchStatus = statusFilter === 'all' || e.status === statusFilter
+      const matchStatus = statusFilter === 'all' || 
+        (statusFilter === 'locked' ? e.isLocked : e.status === statusFilter)
       return matchType && matchStatus
     })
   }, [equipment, typeFilter, statusFilter])
@@ -606,6 +616,7 @@ export default function Equipment() {
             <Option value="warning">预警</Option>
             <Option value="danger">危险</Option>
             <Option value="offline">离线</Option>
+            <Option value="locked">已锁机</Option>
           </Select>
         </div>
 

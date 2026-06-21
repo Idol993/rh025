@@ -49,7 +49,16 @@ export default function Material() {
   useEffect(() => {
     const filter = searchParams.get('filter')
     if (filter) setResultFilter(filter)
-  }, [])
+
+    const detailId = searchParams.get('detailId')
+    if (detailId) {
+      const material = materials.find(m => m.id === detailId)
+      if (material) {
+        setSelectedMaterial(material)
+        setModalVisible(true)
+      }
+    }
+  }, [searchParams, materials])
   const [modalVisible, setModalVisible] = useState(false)
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
   const [remarkModalVisible, setRemarkModalVisible] = useState(false)

@@ -296,7 +296,16 @@ export default function Dashboard() {
   }
 
   const handleLogClick = (log: OperationLog) => {
-    navigate(log.modulePath)
+    const params = new URLSearchParams()
+    if (log.detailId) {
+      params.set('detailId', log.detailId)
+    }
+    if (log.defaultFilter) {
+      params.set('filter', log.defaultFilter)
+    }
+    const queryString = params.toString()
+    const path = queryString ? `${log.modulePath}?${queryString}` : log.modulePath
+    navigate(path)
   }
 
   const paidCount = salaryRecords.filter(s => s.status === 'paid').length
@@ -725,16 +734,16 @@ export default function Dashboard() {
             bordered={false}
             onClick={() => handleCardClick('/salary')}
           >
-            <div className="text-center mb-4">
+            <div className="text-center mb-4 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleCardClick('/salary', 'paid') }}>
               <div className="text-3xl font-bold text-cyan-400 glow-text">{salPaidRate}%</div>
               <div className="text-sm text-gray-400 mt-1">本月工资发放率</div>
             </div>
             <div className="space-y-2">
-              <div className="data-item">
+              <div className="data-item cursor-pointer" onClick={(e) => { e.stopPropagation(); handleCardClick('/salary', 'paid') }}>
                 <span className="text-gray-400">已发放</span>
                 <span className="text-green-400">{paidCount} 人</span>
               </div>
-              <div className="data-item">
+              <div className="data-item cursor-pointer" onClick={(e) => { e.stopPropagation(); handleCardClick('/salary', 'pending') }}>
                 <span className="text-gray-400">待发放</span>
                 <span className="text-yellow-400">{approvedCount + pendingSalCount} 人</span>
               </div>

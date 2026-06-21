@@ -58,7 +58,17 @@ export default function Personnel() {
   useEffect(() => {
     const filter = searchParams.get('filter')
     if (filter) setStatusFilter(filter)
-  }, [])
+
+    const detailId = searchParams.get('detailId')
+    if (detailId) {
+      const worker = workers.find(w => w.id === detailId)
+      if (worker) {
+        setSelectedWorker(worker)
+        setActionType('view')
+        setModalVisible(true)
+      }
+    }
+  }, [searchParams, workers])
   const [workTypeFilter, setWorkTypeFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [modalVisible, setModalVisible] = useState(false)

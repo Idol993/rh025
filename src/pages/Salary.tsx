@@ -23,7 +23,16 @@ export default function Salary() {
   useEffect(() => {
     const filter = searchParams.get('filter')
     if (filter) setStatusFilter(filter)
-  }, [])
+
+    const detailId = searchParams.get('detailId')
+    if (detailId) {
+      const record = salaryRecords.find(r => r.id === detailId)
+      if (record) {
+        setCurrentRecord(record)
+        setDetailModal(true)
+      }
+    }
+  }, [searchParams, salaryRecords])
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [detailModal, setDetailModal] = useState(false)
   const [currentRecord, setCurrentRecord] = useState<SalaryRecord | null>(null)

@@ -131,7 +131,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         operator: state.currentUser.name,
         operatorRole: state.currentUser.roleName,
         relatedId: newWorker.id,
-        relatedName: newWorker.name
+        relatedName: newWorker.name,
+        detailId: newWorker.id,
+        defaultFilter: newWorker.status
       })
     }))
     get().refreshStats()
@@ -164,7 +166,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         operator: state.currentUser.name,
         operatorRole: state.currentUser.roleName,
         relatedId: id,
-        relatedName: state.workers.find(w => w.id === id)?.name || id
+        relatedName: state.workers.find(w => w.id === id)?.name || id,
+        detailId: id,
+        defaultFilter: 'all'
       })
     }))
     get().refreshStats()
@@ -199,7 +203,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         operator: state.currentUser.name,
         operatorRole: state.currentUser.roleName,
         relatedId: id,
-        relatedName: state.workOrders.find(o => o.id === id)?.title || id
+        relatedName: state.workOrders.find(o => o.id === id)?.title || id,
+        detailId: id,
+        defaultFilter: 'closed'
       }) : {})
     }))
     get().refreshStats()
@@ -219,7 +225,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         operator: handler || state.currentUser.name,
         operatorRole: state.currentUser.roleName,
         relatedId: id,
-        relatedName: state.safetyAlerts.find(a => a.id === id)?.typeName || id
+        relatedName: state.safetyAlerts.find(a => a.id === id)?.typeName || id,
+        detailId: id,
+        defaultFilter: 'all'
       }) : {})
     }))
     get().refreshStats()
@@ -245,7 +253,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         operator: order.reporter,
         operatorRole: state.currentUser.roleName,
         relatedId: `WO${String(state.workOrders.length + 1).padStart(5, '0')}`,
-        relatedName: order.title
+        relatedName: order.title,
+        detailId: `WO${String(state.workOrders.length + 1).padStart(5, '0')}`,
+        defaultFilter: 'pending'
       })
     }))
     get().refreshStats()
@@ -275,7 +285,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           operator,
           operatorRole: state.currentUser.roleName,
           relatedId: id,
-          relatedName: mat?.name || id
+          relatedName: mat?.name || id,
+          detailId: id,
+          defaultFilter: result
         })
       }
     })
@@ -297,7 +309,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         operator: state.currentUser.name,
         operatorRole: state.currentUser.roleName,
         relatedId: ids[0],
-        relatedName: `${ids.length}条记录`
+        relatedName: `${ids.length}条记录`,
+        detailId: ids[0],
+        defaultFilter: 'approved'
       })
     }))
     get().refreshStats()
@@ -326,7 +340,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         operator: state.currentUser.name,
         operatorRole: state.currentUser.roleName,
         relatedId: ids[0],
-        relatedName: `${ids.length}条记录`
+        relatedName: `${ids.length}条记录`,
+        detailId: ids[0],
+        defaultFilter: 'paid'
       })
     }))
     get().refreshStats()
@@ -355,7 +371,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           operator: state.currentUser.name,
           operatorRole: state.currentUser.roleName,
           relatedId: id,
-          relatedName: rec?.workerName || id
+          relatedName: rec?.workerName || id,
+          detailId: id,
+          defaultFilter: 'paid'
         })
       }
     })
@@ -387,7 +405,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           operator: state.currentUser.name,
           operatorRole: state.currentUser.roleName,
           relatedId: id,
-          relatedName: eq?.name || id
+          relatedName: eq?.name || id,
+          detailId: id,
+          defaultFilter: 'locked'
         })
       }
     })
@@ -411,7 +431,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 unlockOperator: operator,
                 unlockTime: nowStr(),
                 lastUpdate: nowStr(),
-                limitStatus: '正常'
+                limitStatus: targetStatus === 'warning' ? '预警监控' : '正常'
               }
             : e
         ),
@@ -424,7 +444,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           operator,
           operatorRole: state.currentUser.roleName,
           relatedId: id,
-          relatedName: eq?.name || id
+          relatedName: eq?.name || id,
+          detailId: id,
+          defaultFilter: 'all'
         })
       }
     })

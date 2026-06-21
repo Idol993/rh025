@@ -22,7 +22,16 @@ export default function WorkOrderPage() {
   useEffect(() => {
     const filter = searchParams.get('filter')
     if (filter) setStatusFilter(filter)
-  }, [])
+
+    const detailId = searchParams.get('detailId')
+    if (detailId) {
+      const order = workOrders.find(o => o.id === detailId)
+      if (order) {
+        setCurrentOrder(order)
+        setDetailModal(true)
+      }
+    }
+  }, [searchParams, workOrders])
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [levelFilter, setLevelFilter] = useState<string>('all')
   const [detailModal, setDetailModal] = useState(false)
